@@ -24,7 +24,7 @@ FIXTURE(nested_sections, "Nested sections are visited in order")
 
             do {
                 REQUIRE(true && "Assertions in control loops should work.");
-                REQUIRE(bar && "Should fail and stop tests in the section!");
+                REQUIRE(bar && "Should fail and block section B.A.B.");
             } while(1);
 
             SECTION("Nested section B.A.B")
