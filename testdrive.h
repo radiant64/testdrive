@@ -1,6 +1,8 @@
 #pragma once
 
 #include <assert.h>
+#include <setjmp.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -20,155 +22,202 @@
         );\
     }
 
+#define TD_EVENT(EVENT_)\
+    td_listener(EVENT_, td__test_ptr, __FILE__, __LINE__)
+
 #define TD_FIXTURE(NAME, DESCRIPTION)\
     struct td_test_context TD_TEST_INFO(NAME) = {\
         #NAME,\
         DESCRIPTION\
     };\
-    void TD_TEST_FUNCTION(NAME)(\
-        struct td_test_context* td__test_ptr,\
-        size_t td__sequence\
-    ) {\
+    void TD_TEST_FUNCTION(NAME)(struct td_test_context* td__test_ptr) {\
         TD_ALLOC_SECTIONS(td__test_ptr);\
-        td__test_ptr->section_idx = 0;\
         size_t td__assert_count = 0;\
-        do {
+        TD_EVENT(TD_TEST_START);\
+        size_t td__sequence = 0;\
+        jmp_buf td__begin;\
+        jmp_buf* td__continue = &td__begin;\
+        bool td__from_assert = false;\
+        do {\
+            do {\
+                td__from_assert = false;\
+                if (setjmp(td__begin) == 1) {\
+                    td__sequence++;\
+                    td__from_assert = true;\
+                    if (td__sequence > td__test_ptr->section_idx) {\
+                        break;\
+                    }\
+                }\
+            } while (td__from_assert);\
+            if (td__from_assert) {\
+                td__from_assert = false;\
+                break;\
+            }\
+            td__test_ptr->section_idx = 0;
 
 #define TD_SECTION(DESCRIPTION)\
+    TD_EVENT(TD_SECTION_PRE);\
     assert(td__test_ptr->section_idx < TD_MAX_SECTIONS);\
     if (\
-        td__test_ptr->sections[++td__test_ptr->section_idx].name\
-        != td__dummy\
+        td__test_ptr->sections[++(td__test_ptr->section_idx)].name\
+            == NULL\
     ) {\
         td__test_ptr->sections[td__test_ptr->section_idx]\
             = (struct td_test_context) {\
-                td__dummy,\
+                "",\
                 DESCRIPTION\
             };\
     }\
     if (td__sequence != td__test_ptr->section_idx) {\
+        TD_EVENT(TD_SECTION_SKIP);\
     } else {\
         {\
             struct td_test_context* td__parent_ptr = td__test_ptr;\
             size_t td__parent_seq = td__sequence;\
-            size_t td__parent_assert_count = td__assert_count;\
+            jmp_buf* td__parent_continue = td__continue;\
             td__test_ptr = &td__test_ptr->sections[td__sequence];\
             TD_ALLOC_SECTIONS(td__test_ptr);\
+            TD_EVENT(TD_SECTION_START);\
+            jmp_buf td__section_begin;\
+            td__continue = &td__section_begin;\
             td__sequence = 0;\
             do {\
-                td__assert_count = 0;\
-                td__test_ptr->section_idx = 0;\
+                do {\
+                    td__from_assert = false;\
+                    if (setjmp(td__section_begin) == 1) {\
+                        td__sequence += 1;\
+                        td__from_assert = true;\
+                        if (td__sequence > td__test_ptr->section_idx) {\
+                            break;\
+                        }\
+                    }\
+                } while (td__from_assert);\
+                if (td__from_assert) {\
+                    td__from_assert = false;\
+                    break;\
+                }\
+                td__test_ptr->section_idx = 0;
 
 #define TD_END_SECTION\
             } while (td__sequence++ < td__test_ptr->section_idx);\
+            TD_EVENT(TD_SECTION_END);\
             td__test_ptr = td__parent_ptr;\
             td__sequence = td__parent_seq;\
-            td__assert_count = td__parent_assert_count;\
+            td__continue = td__parent_continue;\
         }\
     }
 
-#define TD_END_FIXTURE(NAME)\
-        } while (0);\
-        if (td__test_ptr->section_idx > td__sequence) {\
-            TD_TEST_FUNCTION(NAME)(td__test_ptr, td__sequence + 1);\
-        }\
+#define TD_END_FIXTURE\
+        } while (td__test_ptr->section_idx > td__sequence++);\
+        TD_EVENT(TD_TEST_END);\
     }
 
-#define TD_EXTERN_FIXTURE_SINGLE(NAME)\
+#define TD_EXTERN_FIXTURE(NAME)\
     extern struct td_test TD_TEST_INFO(NAME);\
     void TD_TEST_FUNCTION(NAME)(struct td_test*, const size_t)
 
-#define TD_EXTERN_FIXTURE(NAME, ...)\
-    TD_EXTERN_FIXTURE_SINGLE(NAME);\
-    TD_EXTERN_FIXTURE(__VA_ARGS__)
-
 #define TD_REQUIRE(CONDITION)\
-    if (td__test_ptr->total_count < ++td__assert_count) {\
-        assert(td__test_ptr->total_count <= TD_MAX_ASSERTS);\
-        td__test_ptr->asserts[td__test_ptr->total_count++] = #CONDITION;\
-        if (!(CONDITION)) {\
-            td__test_ptr->failed_asserts[td__test_ptr->failed_count++]\
-                = td__test_ptr->total_count - 1;\
-            break;\
-        }\
-    }
+    td__test_ptr->current_assertion = #CONDITION;\
+    TD_EVENT(TD_ASSERT_PRE);\
+    if (!(CONDITION)) {\
+        TD_EVENT(TD_ASSERT_FAILURE);\
+        longjmp(*td__continue, 1);\
+    }\
+    TD_EVENT(TD_ASSERT_SUCCESS);
 
-#define TD_REPORTER(REPORTER_FUNC, TEST_) REPORTER_FUNC(&TD_TEST_INFO(TEST_))
+#define TD_SET_LISTENER(LISTENER_FUNC) td_listener = LISTENER_FUNC
 
-#define TD_DEFAULT_REPORTER(TEST_) TD_REPORTER(td_console_reporter, TEST_)
+#define TD_RUN_TEST(NAME) TD_TEST_FUNCTION(NAME)(&TD_TEST_INFO(NAME))
 
-#define TD_RUN_TEST(NAME) TD_TEST_FUNCTION(NAME)(&TD_TEST_INFO(NAME), 0)
-
-#define TD_REPORTER_RUN_TEST(REPORTER_, TEST_)\
-    TD_RUN_TEST(TEST_);\
-    REPORTER_(TEST_)
-
-#define TD_DEFAULT_RUN_TEST(TEST_)\
-    TD_REPORTER_RUN_TEST(TD_DEFAULT_REPORTER, TEST_)
+#ifndef TD_DEFAULT_LISTENER
+#define TD_DEFAULT_LISTENER td_console_listener
+#endif
 
 #ifndef TD_ONLY_PREFIXED_MACROS
-
-#define TEST_INFO(...) TD_TEST_INFO(__VA_ARGS__)
-#define TEST_FUNCTION(...) TD_TEST_FUNCTION(__VA_ARGS__)
 
 #define FIXTURE(...) TD_FIXTURE(__VA_ARGS__)
 #define SECTION(...) TD_SECTION(__VA_ARGS__)
 #define END_SECTION TD_END_SECTION
-#define END_FIXTURE(...) TD_END_FIXTURE(__VA_ARGS__)
+#define END_FIXTURE TD_END_FIXTURE
 #define EXTERN_FIXTURE(...) TD_EXTERN_FIXTURE(__VA_ARGS__)
 
 #define REQUIRE(...) TD_REQUIRE(__VA_ARGS__)
 
-#define REPORTER(...) TD_REPORTER(__VA_ARGS__)
-#define DEFAULT_REPORTER(...) TD_DEFAULT_REPORTER(__VA_ARGS__)
-
 #define RUN_TEST(...) TD_RUN_TEST(__VA_ARGS__)
-#define REPORTER_RUN_TEST(...) TD_REPORTER_RUN_TEST(__VA_ARGS__)
-#define DEFAULT_RUN_TEST(...) TD_DEFAULT_RUN_TEST(__VA_ARGS__)
 
 #endif
 
-static const char* td__dummy = "DUMMY";
+enum td_event {
+    TD_TEST_START,
+    TD_SECTION_PRE,
+    TD_SECTION_SKIP,
+    TD_SECTION_START,
+    TD_SECTION_END,
+    TD_ASSERT_PRE,
+    TD_ASSERT_FAILURE,
+    TD_ASSERT_SUCCESS,
+    TD_TEST_END
+};
 
 struct td_test_context {
     const char* name;
     const char* description;
-    size_t total_count;
-    size_t failed_count;
     size_t section_idx;
     struct td_test_context* sections;
-    const char* asserts[TD_MAX_ASSERTS];
-    size_t failed_asserts[TD_MAX_ASSERTS];
+    const char* current_assertion;
 };
 
-static void td_console_reporter_recurse(
-    const struct td_test_context* test,
-    const char* indentation
-) {
-    fprintf(stdout, "%sTest: %s\n", indentation, test->description);
-    fprintf(
-         stdout,
-         "%s- %ld/%ld assertions failed\n",
-         indentation,
-         test->failed_count,
-         test->total_count
-    );
-    char *section_ind = NULL;
-    for (size_t i = 1; i <= test->section_idx; ++i) {
-        if (!section_ind) {
-            const size_t indlen = strlen(indentation);
-            section_ind = malloc(indlen + 3);
-            memcpy(section_ind, indentation, indlen);
-            section_ind[indlen] = ' ';
-            section_ind[indlen + 1] = ' ';
-            section_ind[indlen + 2] = '\0';
-        }
-        td_console_reporter_recurse(&test->sections[i], section_ind);
-    }
-    free(section_ind);
-}
+static void td_console_listener(
+    enum td_event event,
+    struct td_test_context* test,
+    const char* file,
+    size_t line
+);
 
-static void td_console_reporter(const struct td_test_context* test) {
-    td_console_reporter_recurse(test, "");
+static void(*td_listener)(
+    enum td_event event,
+    struct td_test_context* test,
+    const char* file,
+    size_t line
+) = TD_DEFAULT_LISTENER;
+
+static void td_console_listener(
+    enum td_event event,
+    struct td_test_context* test,
+    const char* file,
+    size_t line
+) {
+    switch (event) {
+    case TD_TEST_START:
+        printf("TD_TEST_START\n");
+        break;
+    case TD_SECTION_PRE:
+        printf("TD_SECTION_PRE\n");
+        break;
+    case TD_SECTION_SKIP:
+        printf(
+            "TD_SECTION_SKIP: %s\n",
+            test->sections[test->section_idx].description
+        );
+        break;
+    case TD_SECTION_START:
+        printf("TD_SECTION_START: %s\n", test->description);
+        break;
+    case TD_SECTION_END:
+        printf("TD_SECTION_END\n");
+        break;
+    case TD_ASSERT_PRE:
+        printf("TD_ASSERT_PRE: %s\n", test->current_assertion);
+        break;
+    case TD_ASSERT_FAILURE:
+        printf("TD_ASSERT_FAILURE\n");
+        break;
+    case TD_ASSERT_SUCCESS:
+        printf("TD_ASSERT_SUCCESS\n");
+        break;
+    case TD_TEST_END:
+        printf("TD_TEST_END\n");
+        break;
+    }
 }
 

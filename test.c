@@ -3,40 +3,47 @@
 #include <assert.h>
 #include <stdbool.h>
 
-FIXTURE(test_nested_sections, "Nested sections are visited in order")
+FIXTURE(nested_sections, "Nested sections are visited in order")
     REQUIRE(true && "Top level assertion visibility test.");
 
-    bool a = true;
-    bool b = false;
+    bool foo = true;
+    bool bar = false;
 
     SECTION("Top level section A")
-        REQUIRE(a);
+        REQUIRE(foo);
     END_SECTION
 
     SECTION("Top level section B")
-        REQUIRE(!b);
-        bool c = true;
+        REQUIRE(!bar);
+        bool baz = true;
 
         SECTION("Nested section B.A")
-            REQUIRE(b && "This assertion should fail!");
             SECTION("Nested section B.A.A")
+                REQUIRE(true && "Should always succeed.");
+            END_SECTION
+
+            do {
+                REQUIRE(true && "Assertions in control loops should work.");
+                REQUIRE(bar && "Should fail and stop tests in the section!");
+            } while(1);
+
+            SECTION("Nested section B.A.B")
                 assert(false && "Should never be tested.");
             END_SECTION
         END_SECTION
 
         SECTION("Nested section B.B")
-            REQUIRE(c && "Nested scope visibility.");
+            REQUIRE(baz && "Nested scope visibility.");
         END_SECTION
     END_SECTION
 
     SECTION("Top level section C")
-        REQUIRE(a != b);
+        REQUIRE(foo != bar);
     END_SECTION
-END_FIXTURE(test_nested_sections)
-
+END_FIXTURE
 
 int main(int argc, char** argv) {
-    DEFAULT_RUN_TEST(test_nested_sections);
+    RUN_TEST(nested_sections);
     return 0;
 }
 
