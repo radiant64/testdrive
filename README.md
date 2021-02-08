@@ -1,4 +1,4 @@
-# testdrive
+# Testdrive
 
 An expressive single-header unit testing framework for C (99 or later).
 
@@ -12,7 +12,7 @@ the traditional approach where fixtures are data objects deals poorly with
 testing sequences, where the state is mutating and evolving between the test
 cases.
 
-The approach taken in *testdrive* is inspired by
+The approach taken in **Testdrive** is inspired by
 [Catch2](https://github.com/catchorg/Catch2). In it, test fixtures can contain
 any number of nested _test sections_, which can extend and alter the state as
 needed.
@@ -58,3 +58,4 @@ int main(int argc, char** argv) {
 }
 ```
 
+## Usage
