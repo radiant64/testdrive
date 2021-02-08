@@ -1,0 +1,6 @@
+test
+*.o
+
+# Vim litter.
+*~
+.*.sw?
