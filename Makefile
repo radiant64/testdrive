@@ -1,7 +1,7 @@
 CFLAGS+=-g
 
 .PHONY: all run_test clean
-all : run_test
+all : test
 
 test: test.o
 	$(CC) -g -o $@ $<
