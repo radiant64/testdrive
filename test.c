@@ -43,7 +43,6 @@ FIXTURE(nested_sections, "Nested sections are visited in order")
 END_FIXTURE
 
 int main(int argc, char** argv) {
-    RUN_TEST(nested_sections);
-    return 0;
+    return RUN_TEST(nested_sections);
 }
 

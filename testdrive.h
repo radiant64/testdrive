@@ -51,10 +51,11 @@
         #NAME,\
         DESCRIPTION\
     };\
-    void TD_TEST_FUNCTION(NAME)(struct td_test_context* td__test_ptr) {\
+    bool TD_TEST_FUNCTION(NAME)(struct td_test_context* td__test_ptr) {\
         TD_ALLOC_SECTIONS(td__test_ptr);\
         size_t td__assert_count = 0;\
         size_t td__sequence = 0;\
+        bool td__failure = false;\
         TD_EVENT(TD_TEST_START, td__test_ptr);\
         jmp_buf td__begin;\
         jmp_buf* td__continue = &td__begin;\
@@ -107,6 +108,7 @@
 #define TD_END_FIXTURE\
         } while (td__test_ptr->section_idx > td__sequence++);\
         TD_EVENT(TD_TEST_END, td__test_ptr);\
+        return td__failure;\
     }
 
 #define TD_EXTERN_FIXTURE(NAME)\
@@ -118,6 +120,7 @@
     TD_EVENT(TD_ASSERT_PRE, td__test_ptr);\
     if (!(CONDITION)) {\
         TD_EVENT(TD_ASSERT_FAILURE, td__test_ptr);\
+        td__failure = true;\
         longjmp(*td__continue, 1);\
     }\
     TD_EVENT(TD_ASSERT_SUCCESS, td__test_ptr);
@@ -130,6 +133,7 @@
         longjmp(*td__continue, 1);\
     }\
     TD_EVENT(TD_ASSERT_FAILURE, td__test_ptr);\
+    td__failure = true;\
     longjmp(*td__continue, 1);
 
 #define TD_SET_LISTENER(LISTENER_FUNC) td_listener = LISTENER_FUNC
