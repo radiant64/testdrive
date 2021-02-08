@@ -111,6 +111,16 @@
     }\
     TD_EVENT(TD_ASSERT_SUCCESS, td__test_ptr);
 
+#define TD_REQUIRE_FAIL(CONDITION)\
+    td__test_ptr->current_assertion = #CONDITION;\
+    TD_EVENT(TD_ASSERT_PRE, td__test_ptr);\
+    if (!(CONDITION)) {\
+        TD_EVENT(TD_ASSERT_SUCCESS, td__test_ptr);\
+        longjmp(*td__continue, 1);\
+    }\
+    TD_EVENT(TD_ASSERT_FAILURE, td__test_ptr);\
+    longjmp(*td__continue, 1);
+
 #define TD_SET_LISTENER(LISTENER_FUNC) td_listener = LISTENER_FUNC
 
 #define TD_RUN_TEST(NAME) TD_TEST_FUNCTION(NAME)(&TD_TEST_INFO(NAME))
@@ -128,6 +138,7 @@
 #define EXTERN_FIXTURE(...) TD_EXTERN_FIXTURE(__VA_ARGS__)
 
 #define REQUIRE(...) TD_REQUIRE(__VA_ARGS__)
+#define REQUIRE_FAIL(...) TD_REQUIRE_FAIL(__VA_ARGS__)
 
 #define RUN_TEST(...) TD_RUN_TEST(__VA_ARGS__)
 
