@@ -25,6 +25,16 @@
 #define TD_EVENT(EVENT_, TEST_)\
     td_listener(EVENT_, TEST_, td__sequence, __FILE__, __LINE__)
 
+// Note: In order to be able to assert using the REQUIRE() macro, and proceed
+// to run the next test section on failure, a combination of setjmp() and
+// longjmp() are employed. A failing assertion will longjmp() back to the
+// location referenced by the td__continue pointer, from where the conditional
+// executed when returning from setjmp() will break out from the current scope.
+#define TD_BREAK_HERE(CONTINUE_)\
+    if (setjmp(CONTINUE_) == 1) {\
+        break;\
+    }
+
 #define TD_FIXTURE(NAME, DESCRIPTION)\
     struct td_test_context TD_TEST_INFO(NAME) = {\
         #NAME,\
@@ -37,22 +47,8 @@
         TD_EVENT(TD_TEST_START, td__test_ptr);\
         jmp_buf td__begin;\
         jmp_buf* td__continue = &td__begin;\
-        bool td__from_assert = false;\
         do {\
-            do {\
-                td__from_assert = false;\
-                if (setjmp(td__begin) == 1) {\
-                    td__sequence++;\
-                    td__from_assert = true;\
-                    if (td__sequence > td__test_ptr->section_idx) {\
-                        break;\
-                    }\
-                }\
-            } while (td__from_assert);\
-            if (td__from_assert) {\
-                td__from_assert = false;\
-                break;\
-            }\
+            TD_BREAK_HERE(td__begin)\
             td__test_ptr->section_idx = 0;
 
 #define TD_SECTION(DESCRIPTION)\
@@ -85,20 +81,7 @@
             td__continue = &td__section_begin;\
             td__sequence = 0;\
             do {\
-                do {\
-                    td__from_assert = false;\
-                    if (setjmp(td__section_begin) == 1) {\
-                        td__sequence += 1;\
-                        td__from_assert = true;\
-                        if (td__sequence > td__test_ptr->section_idx) {\
-                            break;\
-                        }\
-                    }\
-                } while (td__from_assert);\
-                if (td__from_assert) {\
-                    td__from_assert = false;\
-                    break;\
-                }\
+                TD_BREAK_HERE(td__section_begin)\
                 td__test_ptr->section_idx = 0;
 
 #define TD_END_SECTION\
@@ -186,11 +169,57 @@ static void(*td_listener)(
     size_t line
 ) = TD_DEFAULT_LISTENER;
 
-static const char* td__indent(char* buffer, size_t indent) {
+// Default console listener implementation below this line.
+
+struct td_test_result {
+    const char* description;
+    size_t successful;
+    size_t total;
+    bool ended;
+    struct td_test_result* parent;
+    size_t sections_count;
+    struct td_test_result* sections[TD_MAX_SECTIONS];
+    const char* asserts[TD_MAX_ASSERTS];
+};
+
+static struct td_test_result* td_new_result(
+    const char* description,
+    struct td_test_result* parent
+) {
+    struct td_test_result* result = calloc(1, sizeof(struct td_test_result));
+    result->description = description;
+    result->parent = parent;
+    return result;
+}
+
+static void td_delete_result(struct td_test_result* result) {
+    for (size_t i = 0; i < result->sections_count; ++i) {
+        free(result->sections[i]);
+    }
+    free(result);
+}
+
+static const char* td__indent(size_t indent) {
+    static char buffer[256] = { 0 };
     for (size_t i = 0; i < indent; ++i) {
         memcpy(&buffer[i * 3], "|  ", 3);
     }
+    buffer[indent * 3] = '\0';
     return buffer;
+}
+
+static void td__print_ratio(
+    size_t indent,
+    size_t successful,
+    size_t total
+) {
+    fprintf(
+        stdout,
+        "%s+- %ld/%ld assertions succeded.\n",
+        td__indent(indent),
+        successful,
+        total
+    );
 }
 
 static void td_console_listener(
@@ -200,24 +229,13 @@ static void td_console_listener(
     const char* file,
     size_t line
 ) {
-    struct test_data {
-        const char* description;
-        size_t successful;
-        size_t total;
-        bool ended;
-        struct test_data* parent;
-        struct test_data* sections[TD_MAX_SECTIONS];
-        const char* asserts[TD_MAX_ASSERTS];
-    };
-    static struct test_data* data;
+    static struct td_test_result* data;
     static size_t indent = 0;
-    char indent_str[256] = { 0 };
     switch (event) {
     case TD_TEST_START:
         fprintf(stdout, "Running test: \"%s\"\n", test->description);
         indent++;
-        data = calloc(1, sizeof(struct test_data));
-        data->description = test->description;
+        data = td_new_result(test->description, NULL);
         break;
     case TD_SECTION_PRE:
         break;
@@ -225,13 +243,14 @@ static void td_console_listener(
         break;
     case TD_SECTION_START:
         if (!data->sections[sequence]) {
-            data->sections[sequence] = calloc(1, sizeof(struct test_data));
-            data->sections[sequence]->parent = data;
-            data->sections[sequence]->description = test->description;
+            data->sections[sequence] = td_new_result(test->description, data);
+            if (data->sections_count < sequence) {
+                data->sections_count = sequence;
+            }
             fprintf(
                 stdout,
                 "%sRunning section: \"%s\"\n",
-                td__indent(indent_str, indent),
+                td__indent(indent),
                 test->description
             );
             indent++;
@@ -241,13 +260,7 @@ static void td_console_listener(
     case TD_SECTION_END:
         if (!data->ended) {
             indent--;
-            fprintf(
-                stdout,
-                "%s+- %ld/%ld assertions succeded.\n",
-                td__indent(indent_str, indent),
-                data->successful,
-                data->total
-            );
+            td__print_ratio(indent, data->successful, data->total);
             data->ended = true;
             data = data->parent;
         }
@@ -262,7 +275,7 @@ static void td_console_listener(
             fprintf(
                 stdout,
                 "%sFailed assertion: %s (%s:%ld)\n",
-                td__indent(indent_str, indent),
+                td__indent(indent),
                 test->current_assertion,
                 file,
                 line
@@ -276,14 +289,8 @@ static void td_console_listener(
         break;
     case TD_TEST_END:
         indent--;
-        data->ended = true;
-        fprintf(
-            stdout,
-            "%s+- %ld/%ld assertions succeded.\n",
-            td__indent(indent_str, indent),
-            data->successful,
-            data->total
-        );
+        td__print_ratio(indent, data->successful, data->total);
+        td_delete_result(data);
         break;
     }
 }
