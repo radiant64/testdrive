@@ -29,8 +29,9 @@
 // to run the next test section on failure, a combination of setjmp() and
 // longjmp() are employed. A failing assertion will longjmp() back to the
 // location referenced by the td__continue pointer, from where the conditional
-// executed when returning from setjmp() will advance to the next sequence or
-// break out from the current scope.
+// executed when returning from setjmp() will advance to the next sequence (if
+// there were any unexecuted sections preceeding the failing assertion) and call
+// setjmp() again, or break out from the current scope.
 #define TD_BREAK_HERE(CONTINUE_)\
     bool td__from_assert;\
     do {\
