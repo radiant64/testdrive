@@ -9,7 +9,6 @@
 
 #ifndef TD_MAX_SECTIONS
 #define TD_MAX_SECTIONS 128
-#define TD_MAX_ASSERTS 256
 #endif
 
 #define TD_TEST_INFO(NAME) td__test_ ## NAME
@@ -111,7 +110,7 @@
     }
 
 #define TD_EXTERN_FIXTURE(NAME)\
-    extern struct td_test TD_TEST_INFO(NAME);\
+    extern struct td_test_context TD_TEST_INFO(NAME);\
     void TD_TEST_FUNCTION(NAME)(struct td_test*, const size_t)
 
 #define TD_REQUIRE(CONDITION)\
@@ -193,6 +192,10 @@ static void(*td_listener)(
 ) = TD_DEFAULT_LISTENER;
 
 // Default console listener implementation below this line.
+
+#ifndef TD_MAX_ASSERTS
+#define TD_MAX_ASSERTS 256
+#endif
 
 struct td_test_result {
     const char* description;
