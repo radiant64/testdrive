@@ -158,7 +158,7 @@ Because the expanded test logic macros don't make any heap allocations, fixed
 size arrays are used to store information about sections. Will be automatically
 set to 128 if undefined.
 
-### `TD_TEST_INFO(NAME)
+### `TD_TEST_INFO(NAME)`
 Translates a **Testdrive** _symbolic identifier_ into a C symbol referencing
 the base [`struct td_test_context`](#struct-td_test_context) instance for a
 test fixture.
