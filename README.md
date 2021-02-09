@@ -153,10 +153,16 @@ Programmatically sets a new listener function.
   [`td_listener`](#td_listener)).
 
 ### `TD_MAX_SECTIONS`
-Macro that specifies the maximum number of (sub)sections within a context.
-Because the expanded test logic macros don't make any heap allocations, fixed
-size arrays are used to store information about sections. Will be automatically
-set to 128 if undefined.
+Macro that specifies the maximum number of (sub)sections within a context. Will
+be automatically set to 128 if undefined.
+
+### `TD_MAX_NESTING`
+Macro that specifies the maximum nesting level in a fixture. Will be
+automatically set to 32 if undefined.
+
+### `TD_MAX_ASSERTS`
+Macro that specifies the maximum number of assertions in a context. Will be
+automatically set to 256 if undefined.
 
 ### `TD_TEST_INFO(NAME)`
 Translates a **Testdrive** _symbolic identifier_ into a C symbol referencing
@@ -172,7 +178,8 @@ the actual function containing the test logic for a test fixture.
 - `NAME`: Identifier for the test fixture.
 
 ### `TD_EVENT(EVENT, TEST)`
-Sends an event to the current listener.
+Sends an event to the current listener. Only happens the first time a context
+is being iterated over.
 
 - `EVENT`: An [`enum td_event`](#enum-td_event) value.
 - `TEST`: A pointer to a [`struct td_test_context`](#struct-td_test_context)
@@ -198,11 +205,14 @@ enum td_event {
 ### `struct td_test_context`
 ```c
 struct td_test_context {
+    struct td_test_context* parent;
     const char* name;
     const char* description;
     size_t section_idx;
+    size_t assert_count;
+    bool assert_success[TD_MAX_ASSERTS];
+    const char* assertions[TD_MAX_ASSERTS];
     struct td_test_context* sections;
-    const char* current_assertion;
 };
 ```
 
