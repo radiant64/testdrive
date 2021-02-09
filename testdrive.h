@@ -10,6 +10,12 @@
 #ifndef TD_MAX_SECTIONS
 #define TD_MAX_SECTIONS 128
 #endif
+#ifndef TD_MAX_NESTING
+#define TD_MAX_NESTING 32
+#endif
+#ifndef TD_MAX_ASSERTS
+#define TD_MAX_ASSERTS 256
+#endif
 
 #define TD_TEST_INFO(NAME) td__test_ ## NAME
 #define TD_TEST_FUNCTION(NAME) td__test_fn_ ## NAME
@@ -22,46 +28,45 @@
     }
 
 #define TD_EVENT(EVENT_, TEST_)\
-    td_listener(EVENT_, TEST_, td__sequence, __FILE__, __LINE__)
+    if (!td__retracing) {\
+        td_listener(EVENT_, TEST_, td__path[td__level], __FILE__, __LINE__);\
+    }
 
 // Note: In order to be able to assert using the REQUIRE() macro, and proceed
 // to run the next test section on failure, a combination of setjmp() and
 // longjmp() are employed. A failing assertion will longjmp() back to the
 // location referenced by the td__continue pointer, from where the conditional
 // executed when returning from setjmp() will advance to the next sequence (if
-// there were any unexecuted sections preceeding the failing assertion) and call
-// setjmp() again, or break out from the current scope.
+// there were any unexecuted sections preceeding the failing assertion), or
+// break out from the current scope.
 #define TD_BREAK_HERE(CONTINUE_)\
-    bool td__from_assert;\
-    do {\
-        td__from_assert = false;\
-        if (setjmp(CONTINUE_) == 1) {\
-            td__from_assert = true;\
-            if (++td__sequence > td__test_ptr->section_idx) {\
-                break;\
-            }\
+    if (setjmp(CONTINUE_) == 1) {\
+        if (++td__path[td__level] > td__test_ptr->section_idx) {\
+            break;\
         }\
-    } while (td__from_assert);\
-    if (td__from_assert) {\
-        break;\
-    }\
+    }
 
 #define TD_FIXTURE(NAME, DESCRIPTION)\
     struct td_test_context TD_TEST_INFO(NAME) = {\
+        NULL,\
         #NAME,\
         DESCRIPTION\
     };\
     bool TD_TEST_FUNCTION(NAME)(struct td_test_context* td__test_ptr) {\
         TD_ALLOC_SECTIONS(td__test_ptr);\
+        size_t td__path[TD_MAX_NESTING] = { 0 };\
+        size_t td__visited[TD_MAX_NESTING] = { 0 };\
+        size_t td__level = 0;\
+        struct td_test_context* td__root = td__test_ptr;\
+        bool td__retracing = false;\
+        size_t td__target_level = 0;\
         size_t td__assert_count = 0;\
-        size_t td__sequence = 0;\
-        bool td__failure = false;\
         TD_EVENT(TD_TEST_START, td__test_ptr);\
         jmp_buf td__begin;\
         jmp_buf* td__continue = &td__begin;\
         do {\
             TD_BREAK_HERE(td__begin)\
-            td__test_ptr->section_idx = 0;
+            td__test_ptr->section_idx = 0;\
 
 #define TD_SECTION(DESCRIPTION)\
     TD_EVENT(TD_SECTION_PRE, td__test_ptr);\
@@ -72,69 +77,102 @@
     ) {\
         td__test_ptr->sections[td__test_ptr->section_idx]\
             = (struct td_test_context) {\
+                td__test_ptr,\
                 "",\
                 DESCRIPTION\
             };\
     }\
-    if (td__sequence != td__test_ptr->section_idx) {\
+    if (\
+        td__path[td__level] != td__test_ptr->section_idx) {\
         TD_EVENT(\
             TD_SECTION_SKIP,\
             &td__test_ptr->sections[td__test_ptr->section_idx]\
         );\
     } else {\
         {\
-            struct td_test_context* td__parent_ptr = td__test_ptr;\
-            size_t td__parent_seq = td__sequence;\
+            if (!td__retracing) {\
+                td__retracing = true;\
+                td__target_level = td__level + 1;\
+                td__level = 0;\
+                td__test_ptr = td__root;\
+                longjmp(td__begin, 2);\
+            }\
             jmp_buf* td__parent_continue = td__continue;\
-            td__test_ptr = &td__test_ptr->sections[td__sequence];\
+            td__test_ptr = &td__test_ptr->sections[td__path[td__level++]];\
             TD_ALLOC_SECTIONS(td__test_ptr);\
+            if (td__retracing && td__level == td__target_level) {\
+                td__retracing = false;\
+            }\
             TD_EVENT(TD_SECTION_START, td__test_ptr);\
             jmp_buf td__section_begin;\
             td__continue = &td__section_begin;\
-            td__sequence = 0;\
             do {\
                 TD_BREAK_HERE(td__section_begin)\
-                td__test_ptr->section_idx = 0;
+                td__test_ptr->section_idx = 0;\
 
 #define TD_END_SECTION\
-            } while (td__sequence++ < td__test_ptr->section_idx);\
+            } while (td__path[td__level]++ < td__test_ptr->section_idx);\
             TD_EVENT(TD_SECTION_END, td__test_ptr);\
-            td__test_ptr = td__parent_ptr;\
-            td__sequence = td__parent_seq;\
+            td__test_ptr = td__test_ptr->parent;\
             td__continue = td__parent_continue;\
+            td__path[td__level] = 0;\
+            td__level--;\
         }\
     }
 
 #define TD_END_FIXTURE\
-        } while (td__test_ptr->section_idx > td__sequence++);\
+        } while (td__test_ptr->section_idx > td__path[td__level]++);\
         TD_EVENT(TD_TEST_END, td__test_ptr);\
-        return td__failure;\
+        {\
+            bool success = true;\
+            for (size_t i = 0; i < td__test_ptr->assert_count; ++i) {\
+                success &= td__test_ptr->assert_success[i];\
+            }\
+            return success ? 0 : 1;\
+        }\
     }
 
 #define TD_EXTERN_FIXTURE(NAME)\
     extern struct td_test_context TD_TEST_INFO(NAME);\
     void TD_TEST_FUNCTION(NAME)(struct td_test*, const size_t)
 
-#define TD_REQUIRE(CONDITION)\
-    td__test_ptr->current_assertion = #CONDITION;\
-    TD_EVENT(TD_ASSERT_PRE, td__test_ptr);\
-    if (!(CONDITION)) {\
-        TD_EVENT(TD_ASSERT_FAILURE, td__test_ptr);\
-        td__failure = true;\
-        longjmp(*td__continue, 1);\
-    }\
-    TD_EVENT(TD_ASSERT_SUCCESS, td__test_ptr);
+#define TD_ASSERT_LOGIC(CONDITION, SUCCESS, FAILURE)\
+    if (td__path[td__level] == 0) {\
+        td__test_ptr->assertions[td__test_ptr->assert_count++] = #CONDITION;\
+        TD_EVENT(TD_ASSERT_PRE, td__test_ptr);\
+        if (!(CONDITION)) {\
+            FAILURE;\
+        } else {\
+            SUCCESS;\
+        }\
+    }
 
-#define TD_REQUIRE_FAIL(CONDITION)\
-    td__test_ptr->current_assertion = #CONDITION;\
-    TD_EVENT(TD_ASSERT_PRE, td__test_ptr);\
-    if (!(CONDITION)) {\
-        TD_EVENT(TD_ASSERT_SUCCESS, td__test_ptr);\
-        longjmp(*td__continue, 1);\
-    }\
-    TD_EVENT(TD_ASSERT_FAILURE, td__test_ptr);\
-    td__failure = true;\
+#define TD_REQUIRE(CONDITION) TD_ASSERT_LOGIC(\
+        CONDITION, ({\
+            td__test_ptr->assert_success[td__test_ptr->assert_count - 1]\
+                = true;\
+            TD_EVENT(TD_ASSERT_SUCCESS, td__test_ptr)\
+        }), ({\
+            td__test_ptr->assert_success[td__test_ptr->assert_count - 1]\
+                = false;\
+            TD_EVENT(TD_ASSERT_FAILURE, td__test_ptr);\
+            longjmp(*td__continue, 1);\
+        })\
+    )
+
+#define TD_REQUIRE_FAIL(CONDITION) TD_ASSERT_LOGIC(\
+        CONDITION, ({\
+            td__test_ptr->assert_success[td__test_ptr->assert_count - 1]\
+                = false;\
+            TD_EVENT(TD_ASSERT_FAILURE, td__test_ptr);\
+        }), ({\
+            td__test_ptr->assert_success[td__test_ptr->assert_count - 1]\
+                = true;\
+            TD_EVENT(TD_ASSERT_SUCCESS, td__test_ptr);\
+        })\
+    );\
     longjmp(*td__continue, 1);
+
 
 #define TD_SET_LISTENER(LISTENER_FUNC) td_listener = LISTENER_FUNC
 
@@ -172,11 +210,14 @@ enum td_event {
 };
 
 struct td_test_context {
+    struct td_test_context* parent;
     const char* name;
     const char* description;
     size_t section_idx;
+    size_t assert_count;
+    bool assert_success[TD_MAX_ASSERTS];
+    const char* assertions[TD_MAX_ASSERTS];
     struct td_test_context* sections;
-    const char* current_assertion;
 };
 
 static void td_console_listener(
@@ -196,38 +237,6 @@ static void(*td_listener)(
 ) = TD_DEFAULT_LISTENER;
 
 // Default console listener implementation below this line.
-
-#ifndef TD_MAX_ASSERTS
-#define TD_MAX_ASSERTS 256
-#endif
-
-struct td_test_result {
-    const char* description;
-    size_t successful;
-    size_t total;
-    bool ended;
-    struct td_test_result* parent;
-    size_t sections_count;
-    struct td_test_result* sections[TD_MAX_SECTIONS];
-    const char* asserts[TD_MAX_ASSERTS];
-};
-
-static struct td_test_result* td_new_result(
-    const char* description,
-    struct td_test_result* parent
-) {
-    struct td_test_result* result = calloc(1, sizeof(struct td_test_result));
-    result->description = description;
-    result->parent = parent;
-    return result;
-}
-
-static void td_delete_result(struct td_test_result* result) {
-    for (size_t i = 0; i < result->sections_count; ++i) {
-        free(result->sections[i]);
-    }
-    free(result);
-}
 
 static const char* td__indent(size_t indent) {
     static char buffer[256] = { 0 };
@@ -252,6 +261,14 @@ static void td__print_ratio(
     );
 }
 
+static size_t td__count_success(struct td_test_context* test) {
+    size_t count = 0;
+    for (size_t i = 0; i < test->assert_count; ++i) {
+        count += test->assert_success[i];
+    }
+    return count;
+}
+
 static void td_console_listener(
     enum td_event event,
     struct td_test_context* test,
@@ -259,68 +276,46 @@ static void td_console_listener(
     const char* file,
     size_t line
 ) {
-    static struct td_test_result* data;
     static size_t indent = 0;
     switch (event) {
     case TD_TEST_START:
         fprintf(stdout, "Running test: \"%s\"\n", test->description);
         indent++;
-        data = td_new_result(test->description, NULL);
         break;
     case TD_SECTION_PRE:
         break;
     case TD_SECTION_SKIP:
         break;
     case TD_SECTION_START:
-        if (!data->sections[sequence]) {
-            data->sections[sequence] = td_new_result(test->description, data);
-            if (data->sections_count < sequence) {
-                data->sections_count = sequence;
-            }
-            fprintf(
-                stdout,
-                "%sRunning section: \"%s\"\n",
-                td__indent(indent),
-                test->description
-            );
-            indent++;
-        }
-        data = data->sections[sequence];
+        fprintf(
+            stdout,
+            "%sRunning section: \"%s\"\n",
+            td__indent(indent),
+            test->description
+        );
+        indent++;
         break;
     case TD_SECTION_END:
-        if (!data->ended) {
-            indent--;
-            td__print_ratio(indent, data->successful, data->total);
-            data->ended = true;
-            data = data->parent;
-        }
+        indent--;
+        td__print_ratio(indent, td__count_success(test), test->assert_count);
         break;
     case TD_ASSERT_PRE:
-        if (sequence == 0) {
-            data->asserts[data->total++] = test->current_assertion;
-        }
         break;
     case TD_ASSERT_FAILURE:
-        if (sequence == 0) {
-            fprintf(
-                stdout,
-                "%sFailed assertion: %s (%s:%ld)\n",
-                td__indent(indent),
-                test->current_assertion,
-                file,
-                line
-            );
-        }
+        fprintf(
+            stdout,
+            "%sFailed assertion: %s (%s:%ld)\n",
+            td__indent(indent),
+            test->assertions[test->assert_count - 1],
+            file,
+            line
+        );
         break;
     case TD_ASSERT_SUCCESS:
-        if (sequence == 0) {
-            data->successful++;
-        }
         break;
     case TD_TEST_END:
         indent--;
-        td__print_ratio(indent, data->successful, data->total);
-        td_delete_result(data);
+        td__print_ratio(indent, td__count_success(test), test->assert_count);
         break;
     }
 }

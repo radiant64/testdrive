@@ -16,14 +16,16 @@ FIXTURE(nested_sections, "Nested sections are visited in order")
     SECTION("Top level section B")
         REQUIRE(!bar);
         bool baz = true;
+        int i = 0;
 
         SECTION("Nested section B.A")
             SECTION("Nested section B.A.A")
+                i++;
                 REQUIRE(true && "Should always succeed.");
             END_SECTION
 
             do {
-                REQUIRE(true && "Assertions in control loops should work.");
+                REQUIRE(i == 0 && "State should be reset between iterations.");
                 REQUIRE_FAIL(bar && "Should fail and block section B.A.B.");
             } while(1);
 
