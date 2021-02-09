@@ -150,7 +150,7 @@ defined in the header file, if undefined.
 Programmatically sets a new listener function. 
 
 - `LISTENER_FUNC`: Function pointer to a listener function (see
-  [`td_listener`](#td_listener).
+  [`td_listener`](#td_listener)).
 
 ### `TD_MAX_SECTIONS`
 Macro that specifies the maximum number of (sub)sections within a context.
@@ -175,8 +175,8 @@ the actual function containing the test logic for a test fixture.
 Sends an event to the current listener.
 
 - `EVENT`: An `enum td_event` value.
-- `TEST`: A pointer to a `struct td_test_context` instance for the currently
-  running context.
+- `TEST`: A pointer to a [`struct td_test_context`](#struct-td_test_context)
+  instance for the currently running context.
 
 ## Datatypes
 
