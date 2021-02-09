@@ -174,7 +174,7 @@ the actual function containing the test logic for a test fixture.
 ### `TD_EVENT(EVENT, TEST)`
 Sends an event to the current listener.
 
-- `EVENT`: An `enum td_event` value.
+- `EVENT`: An [`enum td_event`](#enum-td_event) value.
 - `TEST`: A pointer to a [`struct td_test_context`](#struct-td_test_context)
   instance for the currently running context.
 
