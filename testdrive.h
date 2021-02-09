@@ -7,6 +7,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define TD_VERSION 1.0.0
+
 #ifndef TD_MAX_SECTIONS
 #define TD_MAX_SECTIONS 128
 #endif
