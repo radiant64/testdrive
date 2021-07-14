@@ -29,7 +29,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include <stdlib.h>
 #include <string.h>
 
-#define TD_VERSION 1.0.0
+#define TD_VERSION 1.0.1
 
 #ifndef TD_MAX_SECTIONS
 #define TD_MAX_SECTIONS 128
@@ -169,6 +169,8 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
         } else {\
             SUCCESS;\
         }\
+    } else {\
+        CONDITION;\
     }
 
 #define TD_REQUIRE(CONDITION) TD_ASSERT_LOGIC(\
